@@ -1,0 +1,36 @@
+project:
+  name: vkr-anomaly-monitoring
+  random_state: 42
+
+kaggle:
+  input_root: /kaggle/input
+  working_root: /kaggle/working
+
+dataset:
+  dataset_root: /kaggle/input/datasets/gagansomashekar/microservices-bottleneck-detection-dataset
+  processed_dataset_dir: processed_dataset
+
+output:
+  root: /kaggle/working/vkr_anomaly_monitoring_outputs
+  save_parquet: true
+  save_csv: false
+  csv_encoding: utf-8-sig
+
+preprocessing:
+  anomaly_quantile: 0.95
+  n_lags: 3
+  forecast_horizon: 1
+  rolling_window: 3
+  min_rows_after_processing: 10
+
+split:
+  train_frac: 0.70
+  val_frac: 0.15
+  test_frac: 0.15
+
+target:
+  main: target_anomaly_t_plus_1
+  latency: target_latency_anomaly_t_plus_1
+  cpu: target_cpu_anomaly_t_plus_1
+  memory: target_memory_anomaly_t_plus_1
+  regression: target_p95_latency_t_plus_1
