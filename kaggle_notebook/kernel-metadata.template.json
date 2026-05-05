@@ -1,0 +1,13 @@
+{
+  "id": "__KAGGLE_USERNAME__/vkr-anomaly-monitoring",
+  "title": "VKR Anomaly Monitoring",
+  "code_file": "notebook.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "dataset_sources": [
+    "gagansomashekar/microservices-bottleneck-detection-dataset"
+  ]
+}
