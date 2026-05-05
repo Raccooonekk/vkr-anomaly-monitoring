@@ -100,6 +100,7 @@ vkr-anomaly-monitoring/
 │
 ├── requirements.txt
 ├── README.md
+├──draft.docx
 └── .gitignore
 ```
 
@@ -144,6 +145,7 @@ vkr-anomaly-monitoring/
 │
 ├── requirements.txt                      # зависимости (устанавливаются в Kaggle)
 ├── README.md                             # описание проекта и pipeline
+├──draft.docx                             # черновик дипломной работы
 └── .gitignore                            # исключает токены, данные и артефакты из Git
 ```
 
@@ -840,10 +842,16 @@ data/
 .idea/
 .DS_Store
 ```
+---
+
+# 16. `draft.docx`
+
+Черновик для дипломной работы 
+здесь записываются основные текстовые записи, которые можно использовать в дальнейшем в тексте ВКР
 
 ---
 
-# 16. Что находится в Kaggle
+# 17. Что находится в Kaggle
 
 После запуска notebook в Kaggle будет структура:
 
@@ -871,7 +879,7 @@ data/
 
 ---
 
-# 17. Логическое объединение датасетов
+# 18. Логическое объединение датасетов
 
 Если потом у тебя будет несколько Kaggle datasets:
 
@@ -916,9 +924,9 @@ dataset_sources
 
 ---
 
-# 18. Как выглядит рабочий процесс
+# 19. Как выглядит рабочий процесс
 
-## 18.1. Ты ставишь задачу агенту
+## 19.1. Ты ставишь задачу агенту
 
 Например:
 
@@ -931,7 +939,7 @@ dataset_sources
 
 ---
 
-## 18.2. Агент создаёт PR
+## 19.2. Агент создаёт PR
 
 Он меняет файлы в GitHub:
 
@@ -943,7 +951,7 @@ configs/config.yaml
 
 ---
 
-## 18.3. Ты проверяешь diff
+## 19.3. Ты проверяешь diff
 
 Смотришь:
 
@@ -956,7 +964,7 @@ configs/config.yaml
 
 ---
 
-## 18.4. Merge в main
+## 19.4. Merge в main
 
 После проверки:
 
@@ -966,7 +974,7 @@ Merge pull request
 
 ---
 
-## 18.5. Запускаешь GitHub Actions
+## 19.5. Запускаешь GitHub Actions
 
 ```text
 Actions
@@ -986,7 +994,7 @@ run_note = preprocessing test
 
 ---
 
-## 18.6. GitHub Actions отправляет notebook на Kaggle
+## 19.6. GitHub Actions отправляет notebook на Kaggle
 
 GitHub Actions:
 
@@ -1000,7 +1008,7 @@ GitHub Actions:
 
 ---
 
-## 18.7. Kaggle выполняет notebook
+## 19.7. Kaggle выполняет notebook
 
 Kaggle:
 
@@ -1015,7 +1023,7 @@ Kaggle:
 
 ---
 
-## 18.8. Если Kaggle упал
+## 19.8. Если Kaggle упал
 
 Теперь GitHub Actions тоже должен стать:
 
@@ -1027,7 +1035,7 @@ failed
 
 ---
 
-# 19. Коммиты в этой структуре
+# 20. Коммиты в этой структуре
 
 Коммиты надо делать после каждого логического блока.
 
@@ -1055,7 +1063,7 @@ Save model metrics and predictions in Kaggle output
 
 ---
 
-# 20. Самая важная итоговая структура
+# 21. Самая важная итоговая структура
 
 ```text
 GitHub:
