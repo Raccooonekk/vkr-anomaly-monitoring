@@ -1,0 +1,127 @@
+name: Run Kaggle Notebook
+
+on:
+  workflow_dispatch:
+    inputs:
+      kaggle_account:
+        description: "Choose Kaggle account"
+        required: true
+        default: "racon"
+        type: choice
+        options:
+          - lil
+          - racon
+          - vic
+
+      notebook_slug:
+        description: "Kaggle notebook slug"
+        required: true
+        default: "vkr-anomaly-monitoring"
+
+      run_note:
+        description: "Short note for this run"
+        required: false
+        default: "manual run"
+
+jobs:
+  run-kaggle:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Select Kaggle credentials
+        shell: bash
+        run: |
+          ACCOUNT="${{ github.event.inputs.kaggle_account }}"
+
+          if [ "$ACCOUNT" = "lil" ]; then
+            echo "KAGGLE_USERNAME=${{ vars.KAGGLE_USERNAME_LIL }}" >> $GITHUB_ENV
+            echo "KAGGLE_API_TOKEN=${{ secrets.KAGGLE_API_TOKEN_LIL }}" >> $GITHUB_ENV
+
+          elif [ "$ACCOUNT" = "racon" ]; then
+            echo "KAGGLE_USERNAME=${{ vars.KAGGLE_USERNAME_RACON }}" >> $GITHUB_ENV
+            echo "KAGGLE_API_TOKEN=${{ secrets.KAGGLE_API_TOKEN_RACON }}" >> $GITHUB_ENV
+
+          elif [ "$ACCOUNT" = "vic" ]; then
+            echo "KAGGLE_USERNAME=${{ vars.KAGGLE_USERNAME_VIC }}" >> $GITHUB_ENV
+            echo "KAGGLE_API_TOKEN=${{ secrets.KAGGLE_API_TOKEN_VIC }}" >> $GITHUB_ENV
+
+          else
+            echo "Unknown Kaggle account: $ACCOUNT"
+            exit 1
+          fi
+
+      - name: Validate selected credentials
+        shell: bash
+        run: |
+          if [ -z "$KAGGLE_USERNAME" ]; then
+            echo "KAGGLE_USERNAME is empty"
+            exit 1
+          fi
+
+          if [ -z "$KAGGLE_API_TOKEN" ]; then
+            echo "KAGGLE_API_TOKEN is empty"
+            exit 1
+          fi
+
+          echo "Selected Kaggle account is configured."
+          echo "Selected Kaggle username: $KAGGLE_USERNAME"
+
+      - name: Install Kaggle API
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install kaggle
+
+      - name: Configure Kaggle API token
+        shell: bash
+        run: |
+          mkdir -p ~/.kaggle
+          printf "%s" "$KAGGLE_API_TOKEN" > ~/.kaggle/access_token
+          chmod 600 ~/.kaggle/access_token
+
+      - name: Prepare Kaggle notebook folder
+        shell: bash
+        run: |
+          rm -rf kaggle_notebook/src
+          rm -rf kaggle_notebook/configs
+
+          cp -r src kaggle_notebook/src
+          cp -r configs kaggle_notebook/configs
+          cp requirements.txt kaggle_notebook/requirements.txt
+
+      - name: Generate kernel metadata
+        shell: bash
+        run: |
+          python - <<PY
+          import json
+          import os
+          from pathlib import Path
+
+          template_path = Path("kaggle_notebook/kernel-metadata.template.json")
+          output_path = Path("kaggle_notebook/kernel-metadata.json")
+
+          meta = json.loads(template_path.read_text(encoding="utf-8"))
+
+          username = os.environ["KAGGLE_USERNAME"]
+          slug = "${{ github.event.inputs.notebook_slug }}"
+
+          meta["id"] = f"{username}/{slug}"
+          meta["title"] = "VKR Anomaly Monitoring"
+          meta["code_file"] = "notebook.ipynb"
+
+          output_path.write_text(
+              json.dumps(meta, ensure_ascii=False, indent=2),
+              encoding="utf-8"
+          )
+
+          print("Generated kernel-metadata.json:")
+          print(json.dumps(meta, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Push notebook to Kaggle
+        shell: bash
+        run: |
+          kaggle kernels push -p kaggle_notebook
