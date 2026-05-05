@@ -121,7 +121,35 @@ jobs:
           print(json.dumps(meta, ensure_ascii=False, indent=2))
           PY
 
+      
       - name: Push notebook to Kaggle
         shell: bash
         run: |
           kaggle kernels push -p kaggle_notebook
+
+      - name: Wait for Kaggle notebook result
+        shell: bash
+        run: |
+          KERNEL_REF="${KAGGLE_USERNAME}/${{ github.event.inputs.notebook_slug }}"
+          echo "Waiting for Kaggle kernel: $KERNEL_REF"
+
+          for i in {1..90}; do
+            STATUS_OUTPUT="$(kaggle kernels status "$KERNEL_REF" 2>&1 || true)"
+            echo "Check $i:"
+            echo "$STATUS_OUTPUT"
+
+            if echo "$STATUS_OUTPUT" | grep -qi "complete"; then
+              echo "Kaggle notebook completed successfully."
+              exit 0
+            fi
+
+            if echo "$STATUS_OUTPUT" | grep -qi "error\|failed\|failure"; then
+              echo "Kaggle notebook failed."
+              exit 1
+            fi
+
+            sleep 60
+          done
+
+          echo "Timed out waiting for Kaggle notebook result."
+          exit 1
