@@ -1,17 +1,42 @@
 project:
   name: vkr-anomaly-monitoring
   random_state: 42
+  environment: kaggle
 
 kaggle:
   input_root: /kaggle/input
   working_root: /kaggle/working
 
 dataset:
+  # Основной датасет ВКР.
+  # В Kaggle фактический путь может отличаться, поэтому ниже задан список кандидатов.
   dataset_root: /kaggle/input/datasets/gagansomashekar/microservices-bottleneck-detection-dataset
+  dataset_root_candidates:
+    - /kaggle/input/datasets/gagansomashekar/microservices-bottleneck-detection-dataset
+    - /kaggle/input/microservices-bottleneck-detection-dataset
+
   processed_dataset_dir: processed_dataset
+
+manifest:
+  # Manifest нужен для логического объединения обработанных part-dataset.
+  # Если используется другой Kaggle dataset с manifest, путь можно заменить здесь.
+  root: /kaggle/input/merged-predictive-manifest/merged_predictive_label_trace_manifest
+  root_candidates:
+    - /kaggle/input/merged-predictive-manifest/merged_predictive_label_trace_manifest
+    - /kaggle/input/datasets/lkj123456dsa/merged-predictive-manifest/merged_predictive_label_trace_manifest
+
+  files_index: merged_files_index.parquet
+  samples_index: merged_samples_index.parquet
+  role_index: merged_role_index.parquet
+  manifest_json: merged_manifest.json
 
 output:
   root: /kaggle/working/vkr_anomaly_monitoring_outputs
+  logs_dir: logs
+  reports_dir: reports
+  models_dir: models
+  predictions_dir: predictions
+  metadata_dir: metadata
   save_parquet: true
   save_csv: false
   csv_encoding: utf-8-sig
@@ -34,3 +59,61 @@ target:
   cpu: target_cpu_anomaly_t_plus_1
   memory: target_memory_anomaly_t_plus_1
   regression: target_p95_latency_t_plus_1
+
+training:
+  task_type: classification
+  scenario_mode: separate
+  scenarios:
+    - compose
+    - home
+    - user
+
+  sample_frac: 0.10
+  max_rows_per_file: null
+
+  models:
+    - dummy
+    - random_forest
+    - hist_gradient_boosting
+
+  metrics_classification:
+    - accuracy
+    - precision
+    - recall
+    - f1
+    - roc_auc
+
+  metrics_regression:
+    - mae
+    - rmse
+    - r2
+
+features:
+  service_columns_to_drop:
+    - trace_id
+    - label_trace
+    - latency_anomaly
+    - cpu_anomaly
+    - memory_anomaly
+    - system_anomaly
+
+  source_columns_to_drop:
+    - source_file
+    - source_relpath
+    - source_level_1
+    - source_level_2
+    - source_level_3
+    - dataset_name
+    - part_name
+    - logical_sample_key
+    - file_name
+    - file_suffix
+    - file_role
+    - parent_dir_name
+    - absolute_path
+    - relative_path_from_part
+
+logging:
+  level: INFO
+  log_to_file: true
+  log_filename: pipeline.log
