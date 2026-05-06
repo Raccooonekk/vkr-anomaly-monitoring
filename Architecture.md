@@ -100,7 +100,7 @@ vkr-anomaly-monitoring/
 │
 ├── requirements.txt
 ├── README.md
-├──draft.docx
+├──draft.txt
 └── .gitignore
 ```
 
@@ -145,7 +145,7 @@ vkr-anomaly-monitoring/
 │
 ├── requirements.txt                      # зависимости (устанавливаются в Kaggle)
 ├── README.md                             # описание проекта и pipeline
-├──draft.docx                             # черновик дипломной работы
+├──draft.txt                             # черновик дипломной работы
 └── .gitignore                            # исключает токены, данные и артефакты из Git
 ```
 
@@ -844,7 +844,7 @@ data/
 ```
 ---
 
-# 16. `draft.docx`
+# 16. `draft.txt`
 
 Черновик для дипломной работы 
 здесь записываются основные текстовые записи, которые можно использовать в дальнейшем в тексте ВКР
