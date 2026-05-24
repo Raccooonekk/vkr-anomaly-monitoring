@@ -37,16 +37,16 @@ jobs:
           ACCOUNT="${{ github.event.inputs.kaggle_account }}"
 
           if [ "$ACCOUNT" = "lil" ]; then
-            echo "KAGGLE_USERNAME=${{ vars.KAGGLE_USERNAME_LIL }}" >> $GITHUB_ENV
-            echo "KAGGLE_API_TOKEN=${{ secrets.KAGGLE_API_TOKEN_LIL }}" >> $GITHUB_ENV
+            echo "KAGGLE_USERNAME=${{ vars.KAGGLE_USERNAME_LIL }}" >> "$GITHUB_ENV"
+            echo "KAGGLE_API_TOKEN=${{ secrets.KAGGLE_API_TOKEN_LIL }}" >> "$GITHUB_ENV"
 
           elif [ "$ACCOUNT" = "racon" ]; then
-            echo "KAGGLE_USERNAME=${{ vars.KAGGLE_USERNAME_RACON }}" >> $GITHUB_ENV
-            echo "KAGGLE_API_TOKEN=${{ secrets.KAGGLE_API_TOKEN_RACON }}" >> $GITHUB_ENV
+            echo "KAGGLE_USERNAME=${{ vars.KAGGLE_USERNAME_RACON }}" >> "$GITHUB_ENV"
+            echo "KAGGLE_API_TOKEN=${{ secrets.KAGGLE_API_TOKEN_RACON }}" >> "$GITHUB_ENV"
 
           elif [ "$ACCOUNT" = "vic" ]; then
-            echo "KAGGLE_USERNAME=${{ vars.KAGGLE_USERNAME_VIC }}" >> $GITHUB_ENV
-            echo "KAGGLE_API_TOKEN=${{ secrets.KAGGLE_API_TOKEN_VIC }}" >> $GITHUB_ENV
+            echo "KAGGLE_USERNAME=${{ vars.KAGGLE_USERNAME_VIC }}" >> "$GITHUB_ENV"
+            echo "KAGGLE_API_TOKEN=${{ secrets.KAGGLE_API_TOKEN_VIC }}" >> "$GITHUB_ENV"
 
           else
             echo "Unknown Kaggle account: $ACCOUNT"
@@ -79,8 +79,24 @@ jobs:
         shell: bash
         run: |
           mkdir -p ~/.kaggle
-          printf "%s" "$KAGGLE_API_TOKEN" > ~/.kaggle/access_token
-          chmod 600 ~/.kaggle/access_token
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          username = os.environ["KAGGLE_USERNAME"]
+          token = os.environ["KAGGLE_API_TOKEN"].strip()
+
+          if token.startswith("{"):
+              data = json.loads(token)
+              data.setdefault("username", username)
+          else:
+              data = {"username": username, "key": token}
+
+          kaggle_json = Path.home() / ".kaggle" / "kaggle.json"
+          kaggle_json.write_text(json.dumps(data), encoding="utf-8")
+          PY
+          chmod 600 ~/.kaggle/kaggle.json
 
       - name: Prepare Kaggle notebook folder
         shell: bash
@@ -104,7 +120,6 @@ jobs:
           output_path = Path("kaggle_notebook/kernel-metadata.json")
 
           meta = json.loads(template_path.read_text(encoding="utf-8"))
-
           username = os.environ["KAGGLE_USERNAME"]
           slug = "${{ github.event.inputs.notebook_slug }}"
 
@@ -112,16 +127,11 @@ jobs:
           meta["title"] = "VKR Anomaly Monitoring"
           meta["code_file"] = "notebook.ipynb"
 
-          output_path.write_text(
-              json.dumps(meta, ensure_ascii=False, indent=2),
-              encoding="utf-8"
-          )
-
+          output_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
           print("Generated kernel-metadata.json:")
           print(json.dumps(meta, ensure_ascii=False, indent=2))
           PY
 
-      
       - name: Push notebook to Kaggle
         shell: bash
         run: |
