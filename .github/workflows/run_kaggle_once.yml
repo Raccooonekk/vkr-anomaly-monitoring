@@ -1,3 +1,4 @@
+# one-shot trigger: 2026-05-24T23:00:00+03:00
 name: Run Kaggle Notebook Once
 
 on:
