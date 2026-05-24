@@ -1,0 +1,134 @@
+name: Run Kaggle Notebook Once
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/run_kaggle_once.yml
+
+jobs:
+  run-kaggle-once:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Select default Kaggle credentials
+        shell: bash
+        run: |
+          echo "KAGGLE_USERNAME=${{ vars.KAGGLE_USERNAME_RACON }}" >> "$GITHUB_ENV"
+          echo "KAGGLE_API_TOKEN=${{ secrets.KAGGLE_API_TOKEN_RACON }}" >> "$GITHUB_ENV"
+          echo "KAGGLE_NOTEBOOK_SLUG=vkr-anomaly-monitoring" >> "$GITHUB_ENV"
+
+      - name: Validate selected credentials
+        shell: bash
+        run: |
+          if [ -z "$KAGGLE_USERNAME" ]; then
+            echo "KAGGLE_USERNAME is empty"
+            exit 1
+          fi
+          if [ -z "$KAGGLE_API_TOKEN" ]; then
+            echo "KAGGLE_API_TOKEN is empty"
+            exit 1
+          fi
+          echo "Selected Kaggle username: $KAGGLE_USERNAME"
+
+      - name: Install Kaggle API
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install kaggle
+
+      - name: Configure Kaggle API token
+        shell: bash
+        run: |
+          mkdir -p ~/.kaggle
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          username = os.environ["KAGGLE_USERNAME"]
+          token = os.environ["KAGGLE_API_TOKEN"].strip()
+
+          if token.startswith("{"):
+              data = json.loads(token)
+              data.setdefault("username", username)
+          else:
+              data = {"username": username, "key": token}
+
+          kaggle_json = Path.home() / ".kaggle" / "kaggle.json"
+          kaggle_json.write_text(json.dumps(data), encoding="utf-8")
+          PY
+          chmod 600 ~/.kaggle/kaggle.json
+
+      - name: Prepare Kaggle notebook folder
+        shell: bash
+        run: |
+          rm -rf kaggle_notebook/src
+          rm -rf kaggle_notebook/configs
+          cp -r src kaggle_notebook/src
+          cp -r configs kaggle_notebook/configs
+          cp requirements.txt kaggle_notebook/requirements.txt
+
+      - name: Generate kernel metadata
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          template_path = Path("kaggle_notebook/kernel-metadata.template.json")
+          output_path = Path("kaggle_notebook/kernel-metadata.json")
+          meta = json.loads(template_path.read_text(encoding="utf-8"))
+          meta["id"] = f"{os.environ['KAGGLE_USERNAME']}/{os.environ['KAGGLE_NOTEBOOK_SLUG']}"
+          meta["title"] = "VKR Anomaly Monitoring"
+          meta["code_file"] = "notebook.ipynb"
+          output_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+          print(json.dumps(meta, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Push notebook to Kaggle
+        shell: bash
+        run: |
+          kaggle kernels push -p kaggle_notebook
+
+      - name: Wait for Kaggle notebook result
+        shell: bash
+        run: |
+          KERNEL_REF="${KAGGLE_USERNAME}/${KAGGLE_NOTEBOOK_SLUG}"
+          echo "Waiting for Kaggle kernel: $KERNEL_REF"
+          for i in {1..90}; do
+            STATUS_OUTPUT="$(kaggle kernels status "$KERNEL_REF" 2>&1 || true)"
+            echo "Check $i:"
+            echo "$STATUS_OUTPUT"
+            if echo "$STATUS_OUTPUT" | grep -qi "complete"; then
+              echo "Kaggle notebook completed successfully."
+              exit 0
+            fi
+            if echo "$STATUS_OUTPUT" | grep -qi "error\|failed\|failure"; then
+              echo "Kaggle notebook failed."
+              exit 1
+            fi
+            sleep 60
+          done
+          echo "Timed out waiting for Kaggle notebook result."
+          exit 1
+
+      - name: Download Kaggle outputs
+        shell: bash
+        run: |
+          mkdir -p kaggle_results
+          kaggle kernels output "${KAGGLE_USERNAME}/${KAGGLE_NOTEBOOK_SLUG}" -p kaggle_results
+          find kaggle_results -maxdepth 4 -type f | sort
+
+      - name: Upload Kaggle results artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kaggle-results
+          path: kaggle_results
+          if-no-files-found: error
