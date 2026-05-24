@@ -8,27 +8,28 @@ kaggle:
   working_root: /kaggle/working
 
 dataset:
-  # Основной датасет ВКР.
-  # В Kaggle фактический путь может отличаться, поэтому ниже задан список кандидатов.
   dataset_root: /kaggle/input/datasets/gagansomashekar/microservices-bottleneck-detection-dataset
   dataset_root_candidates:
     - /kaggle/input/datasets/gagansomashekar/microservices-bottleneck-detection-dataset
     - /kaggle/input/microservices-bottleneck-detection-dataset
-
   processed_dataset_dir: processed_dataset
 
 manifest:
-  # Manifest нужен для логического объединения обработанных part-dataset.
-  # Если используется другой Kaggle dataset с manifest, путь можно заменить здесь.
-  root: /kaggle/input/merged-predictive-manifest/merged_predictive_label_trace_manifest
+  root: /kaggle/working/vkr_anomaly_monitoring_outputs/merged_predictive_manifest
   root_candidates:
+    - /kaggle/working/vkr_anomaly_monitoring_outputs/merged_predictive_manifest
     - /kaggle/input/merged-predictive-manifest/merged_predictive_label_trace_manifest
     - /kaggle/input/datasets/lkj123456dsa/merged-predictive-manifest/merged_predictive_label_trace_manifest
-
   files_index: merged_files_index.parquet
   samples_index: merged_samples_index.parquet
   role_index: merged_role_index.parquet
   manifest_json: merged_manifest.json
+
+manifest_build:
+  search_roots:
+    - /kaggle/input
+    - /kaggle/working/vkr_anomaly_monitoring_outputs
+  output_dir: /kaggle/working/vkr_anomaly_monitoring_outputs/merged_predictive_manifest
 
 output:
   root: /kaggle/working/vkr_anomaly_monitoring_outputs
@@ -40,6 +41,16 @@ output:
   save_parquet: true
   save_csv: false
   csv_encoding: utf-8-sig
+
+execution:
+  run_preprocessing: true
+  run_manifest_build: true
+  run_regression_training: true
+  run_classification_training: true
+  run_dashboard_report: true
+  batch_start: 0
+  batch_size: 50
+  scenario: all
 
 preprocessing:
   anomaly_quantile: 0.95
@@ -61,28 +72,29 @@ target:
   regression: target_p95_latency_t_plus_1
 
 training:
-  task_type: classification
+  task_type: both
   scenario_mode: separate
+  default_scenario: all
   scenarios:
     - compose
     - home
     - user
-
   sample_frac: 0.10
   max_rows_per_file: null
-
-  models:
+  models_classification:
     - dummy
     - random_forest
     - hist_gradient_boosting
-
+  models_regression:
+    - dummy
+    - random_forest
+    - hist_gradient_boosting
   metrics_classification:
     - accuracy
     - precision
     - recall
     - f1
     - roc_auc
-
   metrics_regression:
     - mae
     - rmse
@@ -96,7 +108,6 @@ features:
     - cpu_anomaly
     - memory_anomaly
     - system_anomaly
-
   source_columns_to_drop:
     - source_file
     - source_relpath
