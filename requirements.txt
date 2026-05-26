@@ -5,3 +5,5 @@ matplotlib
 pyyaml
 pyarrow
 joblib
+streamlit
+plotly
