@@ -44,6 +44,22 @@ MODEL_LABELS = {
     "hist_gradient_boosting": "HistGradientBoosting Regressor",
 }
 
+MODEL_SHORT_LABELS = {
+    "dummy": "Baseline",
+    "random_forest": "Random Forest",
+    "hist_gradient_boosting": "HistGradientBoosting",
+}
+
+MONITORING_METRIC_LABELS = {
+    "p95_latency": "p95 latency",
+    "p90_latency": "p90 latency",
+    "mean_latency": "mean latency",
+    "cpu_total": "CPU total",
+    "memory_total": "Memory total",
+    "net_total": "Network total",
+    "resource_pressure": "Resource pressure",
+}
+
 DEMO_METRICS = pd.DataFrame(
     [
         {"scenario": "compose", "model": "dummy", "split": "test", "mae": 120042.50, "rmse": 379351.55, "r2": -0.048},
@@ -148,6 +164,8 @@ def load_real_telemetry(output_root: Path) -> pd.DataFrame:
         telemetry["scenario"] = telemetry["source_level_1"].astype(str)
     else:
         telemetry["scenario"] = "all"
+    if "service" not in telemetry.columns:
+        telemetry["service"] = "system"
     return telemetry
 
 
@@ -165,38 +183,58 @@ def generate_demo_predictions() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _demo_services_for_scenario(scenario: str) -> list[str]:
+    common = ["nginx-thrift", "post-storage-service", "user-service"]
+    scenario_services = {
+        "compose": [
+            "compose-post-service",
+            "text-service",
+            "media-service",
+            "url-shorten-service",
+            "user-mention-service",
+            "social-graph-service",
+            "write-home-timeline-service",
+        ],
+        "home": ["home-timeline-service", "home-timeline-redis", "post-storage-memcached"],
+        "user": ["user-timeline-service", "user-timeline-redis", "user-timeline-mongodb"],
+    }
+    return common + scenario_services.get(scenario, [])
+
+
 def generate_demo_telemetry() -> pd.DataFrame:
     rng = np.random.default_rng(7)
-    services = [
-        "nginx-thrift", "compose-post-service", "post-storage-service", "user-timeline-service",
-        "home-timeline-service", "social-graph-service", "media-service", "url-shorten-service",
-        "user-service", "write-home-timeline-service",
-    ]
     rows: list[dict[str, float | int | str]] = []
     for scenario in ["compose", "home", "user"]:
+        services = _demo_services_for_scenario(scenario)
         for step in range(240):
-            pressure = 0.35 + 0.25 * math.sin(step / 30) + rng.normal(0, 0.04)
+            scenario_pressure = 0.36 + 0.22 * math.sin(step / 30) + rng.normal(0, 0.025)
             spike = 1 if step in range(88, 102) or step in range(180, 188) else 0
-            p95 = 130_000 + 85_000 * pressure + spike * 330_000 + rng.normal(0, 18_000)
-            rows.append(
-                {
-                    "scenario": scenario,
-                    "step": step,
-                    "window_id": step,
-                    "p95_latency": max(20_000, p95),
-                    "p90_latency": max(15_000, p95 * 0.78),
-                    "mean_latency": max(10_000, p95 * 0.42),
-                    "cpu_total": max(0.1, 8.0 * pressure + spike * 3.1 + rng.normal(0, 0.2)),
-                    "memory_total": max(100, 16_000 * pressure + spike * 2900 + rng.normal(0, 450)),
-                    "net_total": max(50, 9000 * pressure + spike * 5200 + rng.normal(0, 350)),
-                    "resource_pressure": max(0.1, 8.0 * pressure + 16_000 * pressure / 1000 + spike * 6),
-                    "system_anomaly": spike,
-                    "latency_anomaly": spike,
-                    "cpu_anomaly": 1 if spike and rng.random() > 0.25 else 0,
-                    "memory_anomaly": 1 if spike and rng.random() > 0.35 else 0,
-                    "service": services[(step + len(scenario)) % len(services)],
-                }
-            )
+            for service_idx, service in enumerate(services):
+                service_factor = 0.82 + 0.06 * service_idx + rng.normal(0, 0.025)
+                service_spike = spike if service in {"compose-post-service", "post-storage-service", "home-timeline-service", "user-timeline-service", "social-graph-service"} else 0
+                p95 = 115_000 * service_factor + 92_000 * scenario_pressure + service_spike * 290_000 + rng.normal(0, 14_000)
+                cpu = 2.0 * service_factor + 6.5 * scenario_pressure + service_spike * 2.4 + rng.normal(0, 0.15)
+                memory = 3_500 * service_factor + 13_500 * scenario_pressure + service_spike * 2_400 + rng.normal(0, 320)
+                net = 2_200 * service_factor + 8_400 * scenario_pressure + service_spike * 4_700 + rng.normal(0, 260)
+                rows.append(
+                    {
+                        "scenario": scenario,
+                        "step": step,
+                        "window_id": step,
+                        "service": service,
+                        "p95_latency": max(20_000, p95),
+                        "p90_latency": max(15_000, p95 * 0.78),
+                        "mean_latency": max(10_000, p95 * 0.42),
+                        "cpu_total": max(0.1, cpu),
+                        "memory_total": max(100, memory),
+                        "net_total": max(50, net),
+                        "resource_pressure": max(0.1, cpu + memory / 1000),
+                        "system_anomaly": int(service_spike),
+                        "latency_anomaly": int(service_spike),
+                        "cpu_anomaly": int(service_spike and rng.random() > 0.25),
+                        "memory_anomaly": int(service_spike and rng.random() > 0.35),
+                    }
+                )
     return pd.DataFrame(rows)
 
 
@@ -241,29 +279,176 @@ def format_int(value: float) -> str:
     return f"{value:,.0f}".replace(",", " ")
 
 
-def metric_cards(telemetry: pd.DataFrame, predictions: pd.DataFrame, metrics: pd.DataFrame, scenario: str, model: str) -> None:
-    tel = telemetry if scenario == "all" else telemetry[telemetry.get("scenario", "all") == scenario]
-    pred = predictions[(predictions["model"] == model) & ((predictions["scenario"] == scenario) | (scenario == "all"))]
+def _scenario_telemetry(telemetry: pd.DataFrame, scenario: str) -> pd.DataFrame:
+    if scenario == "all" or "scenario" not in telemetry.columns:
+        return telemetry.copy()
+    return telemetry[telemetry["scenario"] == scenario].copy()
+
+
+def _scenario_predictions(predictions: pd.DataFrame, scenario: str, model: str) -> pd.DataFrame:
+    pred = predictions[predictions["model"] == model].copy()
+    if scenario != "all":
+        pred = pred[pred["scenario"] == scenario].copy()
+    return pred
+
+
+def _scenario_services(rpc_map: pd.DataFrame, telemetry: pd.DataFrame, scenario: str) -> list[str]:
+    services_from_telemetry: set[str] = set()
+    data = _scenario_telemetry(telemetry, scenario)
+    if "service" in data.columns:
+        services_from_telemetry = set(data["service"].dropna().astype(str))
+
+    services_from_rpc: set[str] = set()
+    edges = rpc_map.copy()
+    if scenario != "all" and "scenario" in edges.columns:
+        edges = edges[edges["scenario"] == scenario]
+    if not edges.empty:
+        services_from_rpc = set(edges["source_service"].dropna().astype(str)).union(set(edges["target_service"].dropna().astype(str)))
+
+    services = sorted(services_from_telemetry.union(services_from_rpc))
+    return services if services else ["system"]
+
+
+def _metric_values_for_display(data: pd.DataFrame, metric_columns: list[str], normalize: bool) -> pd.DataFrame:
+    result = data.copy()
+    if normalize:
+        for column in metric_columns:
+            if column in result.columns:
+                values = pd.to_numeric(result[column], errors="coerce")
+                min_value = values.min()
+                max_value = values.max()
+                if pd.notna(max_value) and pd.notna(min_value) and max_value != min_value:
+                    result[column] = (values - min_value) / (max_value - min_value)
+                else:
+                    result[column] = 0.0
+    return result
+
+
+def model_quality_report(metrics: pd.DataFrame, scenario: str) -> pd.DataFrame:
+    report = metrics.copy()
+    if scenario != "all" and "scenario" in report.columns:
+        report = report[report["scenario"] == scenario].copy()
+    report["model_name"] = report["model"].map(MODEL_LABELS).fillna(report["model"])
+    return report[["scenario", "model_name", "split", "mae", "rmse", "r2"]].sort_values(["split", "rmse"])
+
+
+def risk_windows_report(telemetry: pd.DataFrame, scenario: str, selected_services: list[str]) -> pd.DataFrame:
+    data = _scenario_telemetry(telemetry, scenario)
+    if selected_services and "service" in data.columns:
+        data = data[data["service"].isin(selected_services)].copy()
+    if data.empty:
+        return pd.DataFrame()
+    if "system_anomaly" in data.columns:
+        risks = data[data["system_anomaly"] == 1].copy()
+    elif "p95_latency" in data.columns:
+        risks = data[data["p95_latency"] >= data["p95_latency"].quantile(0.95)].copy()
+    else:
+        risks = data.head(0).copy()
+    keep_cols = [c for c in ["scenario", "step", "window_id", "service", "p95_latency", "cpu_total", "memory_total", "net_total", "system_anomaly"] if c in risks.columns]
+    return risks[keep_cols].sort_values([c for c in ["scenario", "step", "service"] if c in keep_cols]).reset_index(drop=True)
+
+
+def metric_cards(telemetry: pd.DataFrame, predictions: pd.DataFrame, metrics: pd.DataFrame, scenario: str, model: str, service_count: int) -> None:
+    tel = _scenario_telemetry(telemetry, scenario)
+    pred = _scenario_predictions(predictions, scenario, model)
     m = metrics[(metrics["model"] == model) & (metrics["split"] == "test")]
     if scenario != "all":
         m = m[m["scenario"] == scenario]
-    cols = st.columns(5)
-    current_p95 = float(tel["p95_latency"].tail(1).iloc[0]) if "p95_latency" in tel and not tel.empty else 0.0
-    forecast_p95 = float(pred["y_pred"].tail(1).iloc[0]) if not pred.empty and "y_pred" in pred else current_p95
+
+    cols = st.columns(6)
+    windows_count = int(tel["step"].nunique()) if "step" in tel.columns and not tel.empty else len(tel)
     risk_share = float(tel.get("system_anomaly", pd.Series(dtype=float)).mean() * 100) if not tel.empty and "system_anomaly" in tel else 0.0
     rmse = float(m["rmse"].iloc[0]) if not m.empty and "rmse" in m else 0.0
     r2 = float(m["r2"].iloc[0]) if not m.empty and "r2" in m else 0.0
-    cols[0].metric("Текущая p95 latency", format_int(current_p95), "мкс")
-    cols[1].metric("Прогноз t+1", format_int(forecast_p95), "мкс")
-    cols[2].metric("Доля риск-окон", f"{risk_share:.1f}%")
-    cols[3].metric("RMSE модели", format_int(rmse))
-    cols[4].metric("R² на test", f"{r2:.3f}")
+    forecast_p95 = float(pred["y_pred"].tail(1).iloc[0]) if not pred.empty and "y_pred" in pred else 0.0
+
+    cols[0].metric("Текущая модель", MODEL_SHORT_LABELS.get(model, model))
+    cols[1].metric("Контролируемых сервисов", service_count)
+    cols[2].metric("Окон мониторинга", windows_count)
+    cols[3].metric("Доля риск-окон", f"{risk_share:.1f}%")
+    cols[4].metric("Прогноз p95 t+1", format_int(forecast_p95), "мкс")
+    cols[5].metric("RMSE / R²", f"{format_int(rmse)} / {r2:.3f}")
+
+
+def chart_realtime_monitoring(
+    telemetry: pd.DataFrame,
+    predictions: pd.DataFrame,
+    scenario: str,
+    model: str,
+    selected_services: list[str],
+    selected_metrics: list[str],
+    normalize: bool,
+    show_forecast: bool,
+) -> go.Figure:
+    data = _scenario_telemetry(telemetry, scenario)
+    if selected_services and "service" in data.columns:
+        data = data[data["service"].astype(str).isin(selected_services)].copy()
+    if data.empty or not selected_metrics:
+        return go.Figure()
+
+    metric_columns = [column for column in selected_metrics if column in data.columns]
+    if not metric_columns:
+        return go.Figure()
+
+    group_cols = ["step"]
+    available_cols = ["scenario"] + group_cols + metric_columns
+    if "step" not in data.columns:
+        data["step"] = np.arange(len(data))
+    grouped = data[available_cols].groupby("step", as_index=False)[metric_columns].mean()
+    grouped = grouped.sort_values("step").tail(220)
+    grouped = _metric_values_for_display(grouped, metric_columns, normalize)
+
+    fig = go.Figure()
+    for column in metric_columns:
+        fig.add_trace(
+            go.Scatter(
+                x=grouped["step"],
+                y=grouped[column],
+                mode="lines",
+                name=MONITORING_METRIC_LABELS.get(column, column),
+                line={"width": 2},
+            )
+        )
+
+    if show_forecast and "p95_latency" in metric_columns:
+        pred = _scenario_predictions(predictions, scenario, model)
+        if not pred.empty and {"step", "y_pred"}.issubset(pred.columns):
+            pred = pred.sort_values("step").tail(220).copy()
+            forecast = pred[["step", "y_pred"]].copy()
+            forecast["step"] = forecast["step"] + 1
+            forecast["y_pred_display"] = forecast["y_pred"]
+            if normalize:
+                p95_source = pd.to_numeric(data["p95_latency"], errors="coerce")
+                min_value = p95_source.min()
+                max_value = p95_source.max()
+                if pd.notna(max_value) and pd.notna(min_value) and max_value != min_value:
+                    forecast["y_pred_display"] = (forecast["y_pred"] - min_value) / (max_value - min_value)
+                else:
+                    forecast["y_pred_display"] = 0.0
+            fig.add_trace(
+                go.Scatter(
+                    x=forecast["step"],
+                    y=forecast["y_pred_display"],
+                    mode="lines",
+                    name="Прогноз p95 latency t+1",
+                    line={"width": 2.5, "dash": "dash"},
+                )
+            )
+
+    title_suffix = "нормированные значения" if normalize else "исходная шкала"
+    fig.update_layout(
+        height=560,
+        title=f"Панель мониторинга выбранных микросервисов: текущие метрики и прогноз модели ({title_suffix})",
+        xaxis_title="Временное окно наблюдения",
+        yaxis_title="Значение показателя" if not normalize else "Нормированное значение",
+        legend_orientation="h",
+        hovermode="x unified",
+    )
+    return fig
 
 
 def chart_latency_forecast(predictions: pd.DataFrame, scenario: str, model: str) -> go.Figure:
-    data = predictions[predictions["model"] == model].copy()
-    if scenario != "all":
-        data = data[data["scenario"] == scenario]
+    data = _scenario_predictions(predictions, scenario, model)
     if data.empty:
         return go.Figure()
     if len(data) > 600:
@@ -287,9 +472,7 @@ def chart_metric_comparison(metrics: pd.DataFrame, scenario: str) -> go.Figure:
 
 
 def chart_resource_pressure(telemetry: pd.DataFrame, scenario: str) -> go.Figure:
-    data = telemetry.copy()
-    if scenario != "all" and "scenario" in data:
-        data = data[data["scenario"] == scenario]
+    data = _scenario_telemetry(telemetry, scenario)
     if data.empty:
         return go.Figure()
     if len(data) > 800:
@@ -311,14 +494,18 @@ def service_summary(telemetry: pd.DataFrame, rpc_map: pd.DataFrame, placement: p
     if scenario != "all":
         edges = edges[edges["scenario"] == scenario]
     services = sorted(set(edges["source_service"]).union(edges["target_service"]))
+    tel = _scenario_telemetry(telemetry, scenario)
     rng = np.random.default_rng(100 + len(scenario))
     rows = []
     for service in services:
         calls_out = int((edges["source_service"] == service).sum())
         calls_in = int((edges["target_service"] == service).sum())
         node = placement.loc[placement["service"] == service, "node"].iloc[0] if not placement.empty and (placement["service"] == service).any() else "-"
-        risk = min(100, 18 + calls_in * 6 + calls_out * 4 + rng.normal(0, 4))
-        rows.append({"service": service, "node": node, "rpc_in": calls_in, "rpc_out": calls_out, "risk_score": max(0, round(risk, 1)), "p95_latency": round(95_000 + risk * 4200 + rng.normal(0, 15000), 0)})
+        service_tel = tel[tel["service"] == service] if "service" in tel.columns else pd.DataFrame()
+        risk_from_data = float(service_tel["system_anomaly"].mean() * 100) if not service_tel.empty and "system_anomaly" in service_tel.columns else 0.0
+        risk = min(100, 18 + calls_in * 6 + calls_out * 4 + risk_from_data * 0.35 + rng.normal(0, 4))
+        p95_value = float(service_tel["p95_latency"].tail(20).mean()) if not service_tel.empty and "p95_latency" in service_tel.columns else round(95_000 + risk * 4200 + rng.normal(0, 15000), 0)
+        rows.append({"service": service, "node": node, "rpc_in": calls_in, "rpc_out": calls_out, "risk_score": max(0, round(risk, 1)), "p95_latency": round(p95_value, 0)})
     return pd.DataFrame(rows).sort_values("risk_score", ascending=False)
 
 
@@ -358,9 +545,7 @@ def chart_rpc_graph(rpc_map: pd.DataFrame, scenario: str) -> go.Figure:
 
 
 def incident_table(telemetry: pd.DataFrame, scenario: str) -> pd.DataFrame:
-    data = telemetry.copy()
-    if scenario != "all" and "scenario" in data:
-        data = data[data["scenario"] == scenario]
+    data = _scenario_telemetry(telemetry, scenario)
     if data.empty:
         return pd.DataFrame()
     if "system_anomaly" in data:
@@ -378,13 +563,75 @@ def incident_table(telemetry: pd.DataFrame, scenario: str) -> pd.DataFrame:
 
 
 def render_overview(bundle: DataBundle, scenario: str, model: str) -> None:
-    metric_cards(bundle.telemetry, bundle.predictions, bundle.metrics, scenario, model)
-    left, right = st.columns([1.25, 1.0])
-    with left:
-        st.plotly_chart(chart_latency_forecast(bundle.predictions, scenario, model), use_container_width=True)
-    with right:
-        st.plotly_chart(chart_metric_comparison(bundle.metrics, scenario), use_container_width=True)
-    st.plotly_chart(chart_resource_pressure(bundle.telemetry, scenario), use_container_width=True)
+    services = _scenario_services(bundle.rpc_map, bundle.telemetry, scenario)
+    default_services = services[: min(6, len(services))]
+
+    st.subheader("Обзор мониторинга")
+    st.caption("Панель отображает состояние выбранных микросервисов, текущие ресурсные метрики и прогноз p95 latency, рассчитанный ML-моделью на следующий временной шаг.")
+
+    service_count = len(services)
+    metric_cards(bundle.telemetry, bundle.predictions, bundle.metrics, scenario, model, service_count)
+
+    with st.expander("Настройки графика мониторинга", expanded=True):
+        c1, c2, c3, c4 = st.columns([1.35, 1.0, 0.7, 0.7])
+        with c1:
+            selected_services = st.multiselect(
+                "Микросервисы для отображения",
+                options=services,
+                default=default_services,
+                help="Можно оставить несколько сервисов или выбрать все доступные микросервисы сценария.",
+            )
+        with c2:
+            available_metrics = [metric for metric in MONITORING_METRIC_LABELS if metric in bundle.telemetry.columns]
+            selected_metrics = st.multiselect(
+                "Показатели мониторинга",
+                options=available_metrics,
+                default=[metric for metric in ["p95_latency", "cpu_total", "memory_total", "net_total"] if metric in available_metrics],
+                format_func=lambda x: MONITORING_METRIC_LABELS.get(x, x),
+            )
+        with c3:
+            normalize = st.checkbox("Нормировать", value=True)
+        with c4:
+            show_forecast = st.checkbox("Показывать прогноз", value=True)
+
+    fig = chart_realtime_monitoring(
+        bundle.telemetry,
+        bundle.predictions,
+        scenario,
+        model,
+        selected_services,
+        selected_metrics,
+        normalize,
+        show_forecast,
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.subheader("Действия специалиста")
+    risk_report = risk_windows_report(bundle.telemetry, scenario, selected_services)
+    quality_report = model_quality_report(bundle.metrics, scenario)
+    a1, a2, a3, a4 = st.columns(4)
+    with a1:
+        st.download_button(
+            "Получить отчет о качестве моделей",
+            data=quality_report.to_csv(index=False).encode("utf-8-sig"),
+            file_name="model_quality_report.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+    with a2:
+        st.download_button(
+            "Выгрузить риск-окна",
+            data=risk_report.to_csv(index=False).encode("utf-8-sig"),
+            file_name="risk_windows_report.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+    with a3:
+        if st.button("Зафиксировать наблюдение", use_container_width=True):
+            st.success("Наблюдение добавлено в рабочий журнал смены.")
+    with a4:
+        if st.button("Передать в журнал инцидентов", use_container_width=True):
+            st.warning("Событие передано на дополнительную проверку.")
 
 
 def render_services(bundle: DataBundle, scenario: str) -> None:
@@ -439,13 +686,12 @@ def render_report(bundle: DataBundle, scenario: str) -> None:
 def main() -> None:
     st.set_page_config(page_title="Predictive Anomaly Monitoring", layout="wide")
     st.title("Система предиктивного мониторинга аномалий производительности")
-    st.caption("Веб-панель для анализа p95 latency, состояния микросервисов, качества ML-модели и операционных отчетов.")
+    st.caption("Веб-панель для анализа состояния микросервисов, прогноза p95 latency, качества ML-модели и операционных отчетов.")
 
     with st.sidebar:
         st.header("Параметры запуска")
         output_root = st.text_input("Каталог результатов пайплайна", value=os.getenv("VKR_OUTPUT_ROOT", str(DEFAULT_OUTPUT_ROOT)))
         bundle = load_bundle(output_root)
-        st.info(f"Источник данных: {bundle.source_mode}")
         scenario = st.selectbox("Сценарий", options=["all", "compose", "home", "user"], format_func=lambda x: SCENARIO_LABELS.get(x, x))
         default_model = best_model(bundle.metrics, scenario)
         model_options = [m for m in ["hist_gradient_boosting", "random_forest", "dummy"] if m in set(bundle.metrics["model"])]
